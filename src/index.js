@@ -26,7 +26,10 @@ class MCPManager {
       }
       this.logger.info(`[MCP] Connecting to ${name} at ${safeUrl}`);
 
-      const transport = new StreamableHTTPClientTransport(url);
+      const transport = new StreamableHTTPClientTransport(url, {
+        headers: config.headers,
+        debug: config.debug === true,
+      });
 
       const client = new Client(
         { name: `openclaw-${name}`, version: '0.1.0' },

@@ -35,6 +35,18 @@
               "type": "string",
               "description": "HTTP URL (for http transport)"
             },
+            "headers": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra HTTP headers sent with every MCP request (Accept is always set to application/json, text/event-stream)"
+            },
+            "debug": {
+              "type": "boolean",
+              "default": false,
+              "description": "Log MCP transport requests to stdout"
+            },
             "command": {
               "type": "string",
               "description": "Command to spawn (for stdio transport)"
