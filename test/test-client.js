@@ -22,10 +22,19 @@ const mockApi = {
             }
         }
     },
+    pluginConfig: {
+        enabled: true,
+        servers: {
+            test: {
+                enabled: true,
+                url: 'http://localhost:3005/mcp'
+            }
+        }
+    },
     registerService: (service) => {
         console.log('[Mock] Service registered:', service.id);
         // Auto-start for testing
-        service.start().then(() => {
+        service.start({ config: mockApi.config }).then(() => {
             console.log('[Mock] Service started');
         });
 
