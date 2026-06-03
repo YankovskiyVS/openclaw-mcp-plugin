@@ -1,58 +1,106 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import Plugin from '../src/index.js';
+import test, { afterEach } from 'node:test';
+import Plugin, { __resetSharedManagerForTests } from '../src/index.js';
 
-function createMockApi(pluginConfig) {
+const REMOTE_MCP_URL =
+  'https://e976ff2b-0c09-4c79-8d4d-24ab37440e28-mcp-server.ai-agent.inference.cloud.ru/mcp';
+
+afterEach(() => {
+  __resetSharedManagerForTests();
+});
+
+function createMockApi(handlers = {}) {
   const logs = [];
-  let serviceStart;
-  let toolExecute;
-
-  const mockApi = {
+  const api = {
     logger: {
       info: (msg) => logs.push(msg),
       error: (msg) => logs.push(msg),
     },
-    pluginConfig,
+    pluginConfig: handlers.pluginConfig ?? {
+      enabled: true,
+      servers: {
+        'mcp-e976ff2b': {
+          enabled: true,
+          transport: 'http',
+          url: REMOTE_MCP_URL,
+        },
+      },
+    },
     config: {
       plugins: {
         entries: {},
       },
     },
     registerService: (service) => {
-      serviceStart = service.start;
+      handlers.onService?.(service);
     },
     registerTool: (tool) => {
-      toolExecute = tool.execute;
+      handlers.onTool?.(tool);
     },
   };
 
-  Plugin(mockApi);
-
-  return {
-    logs,
-    start: serviceStart,
-    execute: toolExecute,
-  };
+  Plugin(api);
+  return { api, logs, handlers };
 }
 
-test('uses api.pluginConfig when plugins.entries config is absent', async () => {
-  const mock = createMockApi({
-    enabled: true,
-    servers: {
-      'mcp-e976ff2b': {
-        enabled: true,
-        transport: 'http',
-        url: 'https://127.0.0.1:1/mcp',
-      },
+test('tool execute reuses MCP connections from service start across register calls', async () => {
+  let serviceStart;
+  let toolExecute;
+
+  createMockApi({
+    onService: (service) => {
+      serviceStart = service.start;
+    },
+    onTool: () => {},
+  });
+
+  await serviceStart({ config: { plugins: { entries: {} } } });
+
+  createMockApi({
+    onService: () => {},
+    onTool: (tool) => {
+      toolExecute = tool.execute;
     },
   });
 
-  assert.ok(mock.start, 'service.start should be registered');
-  assert.ok(mock.execute, 'tool.execute should be registered');
+  assert.ok(toolExecute, 'tool.execute should be registered');
 
-  await mock.start({ config: { plugins: { entries: {} } } });
+  const result = await toolExecute('test-id', { action: 'list' });
+  const text = result.content[0].text;
 
-  const result = await mock.execute('test-id', { action: 'list' });
+  assert.doesNotMatch(text, /No MCP tools available\./);
+  const tools = JSON.parse(text);
+  assert.ok(Array.isArray(tools));
+  assert.ok(tools.length > 0);
+  assert.equal(tools[0].server, 'mcp-e976ff2b');
+});
+
+test('uses api.pluginConfig when plugins.entries config is absent', async () => {
+  let serviceStart;
+  let toolExecute;
+
+  createMockApi({
+    pluginConfig: {
+      enabled: true,
+      servers: {
+        'mcp-e976ff2b': {
+          enabled: true,
+          transport: 'http',
+          url: 'https://127.0.0.1:1/mcp',
+        },
+      },
+    },
+    onService: (service) => {
+      serviceStart = service.start;
+    },
+    onTool: (tool) => {
+      toolExecute = tool.execute;
+    },
+  });
+
+  await serviceStart({ config: { plugins: { entries: {} } } });
+
+  const result = await toolExecute('test-id', { action: 'list' });
   const text = result.content[0].text;
 
   assert.match(text, /No MCP tools available\./);
@@ -61,10 +109,16 @@ test('uses api.pluginConfig when plugins.entries config is absent', async () => 
 });
 
 test('reports missing servers when plugin config is empty', async () => {
-  const mock = createMockApi({ enabled: true, servers: {} });
+  let toolExecute;
 
-  await mock.start({ config: { plugins: { entries: {} } } });
-  const result = await mock.execute('test-id', { action: 'list' });
+  createMockApi({
+    pluginConfig: { enabled: true, servers: {} },
+    onTool: (tool) => {
+      toolExecute = tool.execute;
+    },
+  });
+
+  const result = await toolExecute('test-id', { action: 'list' });
   const text = result.content[0].text;
 
   assert.match(text, /No MCP servers found in plugin config\./);

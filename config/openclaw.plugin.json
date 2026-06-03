@@ -8,6 +8,11 @@
   "openclaw": {
     "minVersion": "2026.1.0"
   },
+  "contracts": {
+    "tools": [
+      "mcp"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

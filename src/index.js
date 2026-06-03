@@ -3,6 +3,16 @@ import { StreamableHTTPClientTransport } from './http-transport.js';
 
 const PLUGIN_ID = 'mcp-integration';
 
+/** Shared across repeated plugin register() calls (active + tool-discovery registries). */
+let sharedManager = null;
+
+function getSharedManager(logger) {
+  if (!sharedManager) {
+    sharedManager = new MCPManager(logger);
+  }
+  return sharedManager;
+}
+
 function resolvePluginConfig(api, ctx) {
   const fromService = ctx?.config?.plugins?.entries?.[PLUGIN_ID]?.config;
   if (fromService && typeof fromService === 'object' && !Array.isArray(fromService)) {
@@ -30,6 +40,12 @@ function normalizeServerConfig(config) {
     ...config,
     url: typeof config.url === 'string' ? config.url.trim() : config.url,
   };
+}
+
+function seedServerConfigs(manager, pluginConfig) {
+  for (const [name, config] of Object.entries(pluginConfig.servers || {})) {
+    manager.serverConfigs.set(name, normalizeServerConfig(config));
+  }
 }
 
 function formatEmptyToolsMessage(status) {
@@ -84,6 +100,26 @@ class MCPManager {
         await this.connectServer(name, normalized);
       } catch (error) {
         this.logger.error(`[MCP] Failed to initialize ${name}: ${error.message}`);
+      }
+    }
+  }
+
+  async ensureReady() {
+    await this.reconnectAll();
+
+    if (this.tools.size > 0) {
+      return;
+    }
+
+    for (const [name, config] of this.serverConfigs.entries()) {
+      if (config.enabled === false || !config.url || this.clients.has(name)) {
+        continue;
+      }
+
+      try {
+        await this.connectServer(name, config);
+      } catch {
+        // Error already stored for status reporting.
       }
     }
   }
@@ -162,6 +198,8 @@ class MCPManager {
   }
 
   async callTool(serverName, toolName, args = {}) {
+    await this.ensureReady();
+
     if (!this.clients.has(serverName)) {
       const config = this.serverConfigs.get(serverName);
       if (!config) {
@@ -236,20 +274,23 @@ class MCPManager {
  * OpenClaw plugin entry point
  */
 export default function register(api) {
-  const mcpManager = new MCPManager(api.logger);
+  const mcpManager = getSharedManager(api.logger);
+  const pluginConfig = resolvePluginConfig(api, null);
+  seedServerConfigs(mcpManager, pluginConfig);
 
   api.registerService({
     id: PLUGIN_ID,
     start: async (ctx) => {
       api.logger.info('[MCP] Starting...');
 
-      const pluginConfig = resolvePluginConfig(api, ctx);
-      if (pluginConfig.enabled === false) {
+      const runtimeConfig = resolvePluginConfig(api, ctx);
+      if (runtimeConfig.enabled === false) {
         api.logger.info('[MCP] Plugin disabled in config');
         return;
       }
 
-      await mcpManager.connectAll(pluginConfig.servers || {});
+      seedServerConfigs(mcpManager, runtimeConfig);
+      await mcpManager.connectAll(runtimeConfig.servers || {});
 
       const status = mcpManager.getStatus();
       api.logger.info(
@@ -259,6 +300,7 @@ export default function register(api) {
     stop: async () => {
       api.logger.info('[MCP] Stopping...');
       await mcpManager.disconnect();
+      sharedManager = null;
     }
   });
 
@@ -292,7 +334,7 @@ export default function register(api) {
       try {
         switch (params.action) {
           case 'list': {
-            await mcpManager.reconnectAll();
+            await mcpManager.ensureReady();
             const tools = mcpManager.listTools();
             return {
               content: [{
@@ -330,4 +372,9 @@ export default function register(api) {
   });
 
   api.logger.info('[MCP] Plugin registered');
+}
+
+/** @internal Test helper */
+export function __resetSharedManagerForTests() {
+  sharedManager = null;
 }
