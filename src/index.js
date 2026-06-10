@@ -31,14 +31,31 @@ function resolvePluginConfig(api, ctx) {
   return {};
 }
 
+function resolveAllowedTools(config) {
+  const raw = config?.allowed_tools ?? config?.allowedTools;
+  if (!Array.isArray(raw)) {
+    return new Set();
+  }
+  return new Set(
+    raw.map((t) => (typeof t === 'string' ? t.trim() : '')).filter(Boolean)
+  );
+}
+
+function isToolAllowed(allowedSet, toolName) {
+  return allowedSet.has(toolName);
+}
+
 function normalizeServerConfig(config) {
   if (!config || typeof config !== 'object') {
     return config;
   }
 
+  const allowedTools = config.allowed_tools ?? config.allowedTools;
+
   return {
     ...config,
     url: typeof config.url === 'string' ? config.url.trim() : config.url,
+    allowed_tools: Array.isArray(allowedTools) ? allowedTools : [],
   };
 }
 
@@ -176,11 +193,13 @@ class MCPManager {
       await client.connect(transport);
 
       const { tools } = await client.listTools();
+      const allowedSet = resolveAllowedTools(normalized);
+      const filtered = tools.filter((tool) => isToolAllowed(allowedSet, tool.name));
 
       this.clients.set(name, { client, transport });
       this.connectionErrors.delete(name);
 
-      for (const tool of tools) {
+      for (const tool of filtered) {
         this.tools.set(`${name}:${tool.name}`, {
           server: name,
           tool,
@@ -188,8 +207,10 @@ class MCPManager {
         });
       }
 
-      this.logger.info(`[MCP] Connected to ${name}: ${tools.length} tools available`);
-      return tools;
+      this.logger.info(
+        `[MCP] Connected to ${name}: ${filtered.length}/${tools.length} tools available (${allowedSet.size} in allowed_tools)`
+      );
+      return filtered;
     } catch (error) {
       this.connectionErrors.set(name, error.message);
       this.logger.error(`[MCP] Failed to connect to ${name}: ${error.message}`);
@@ -212,6 +233,13 @@ class MCPManager {
     const entry = this.tools.get(toolKey);
 
     if (!entry) {
+      const config = this.serverConfigs.get(serverName);
+      const allowedSet = resolveAllowedTools(config);
+      if (allowedSet.size > 0 && !isToolAllowed(allowedSet, toolName)) {
+        throw new Error(
+          `Tool not allowed: ${toolName} (not in allowed_tools for server ${serverName})`
+        );
+      }
       throw new Error(`Tool not found: ${toolKey}. Available: ${Array.from(this.tools.keys()).join(', ')}`);
     }
 

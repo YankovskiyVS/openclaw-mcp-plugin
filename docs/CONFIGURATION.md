@@ -92,10 +92,43 @@ The plugin is configured in OpenClaw's main configuration file:
   enabled: boolean;              // Enable/disable this server
   transport: "http";             // Transport type
   url: string;                   // Server URL
+  allowed_tools?: string[];      // Strict whitelist of MCP tool names (empty/missing = no tools)
   timeout?: number;              // Request timeout in ms (default: 30000)
   retries?: number;              // Retry attempts (default: 0)
 }
 ```
+
+### Per-Server Tool Allowlist (`allowed_tools`)
+
+`allowed_tools` is a **strict whitelist** of MCP tool names the agent may list and call for that server.
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "mcp-integration": {
+        "config": {
+          "servers": {
+            "docx-mcp": {
+              "enabled": true,
+              "transport": "http",
+              "url": "https://example/mcp",
+              "allowed_tools": [
+                "read_document",
+                "add_heading"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+- Only tool names present in `allowed_tools` are exposed via `mcp action=list` and callable via `mcp action=call`.
+- When the UI selects all tools for an MCP server, the platform stores the full explicit list of tool names (not an empty array).
+- Empty or missing `allowed_tools` means **no tools** are exposed for that server.
 
 ## 🌍 Environment Variables
 

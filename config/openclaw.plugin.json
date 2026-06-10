@@ -69,6 +69,14 @@
                 "type": "string"
               },
               "description": "Environment variables (for stdio transport)"
+            },
+            "allowed_tools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "description": "Strict whitelist of MCP tool names allowed for this server"
             }
           }
         }

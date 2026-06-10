@@ -29,7 +29,23 @@ const server = http.createServer((req, res) => {
                     res.end(JSON.stringify(data));
                 };
 
-                if (method === 'tools/list') {
+                if (method === 'initialize') {
+                    sendJson({
+                        jsonrpc: '2.0',
+                        id: id,
+                        result: {
+                            protocolVersion: params?.protocolVersion || '2024-11-05',
+                            capabilities: { tools: {} },
+                            serverInfo: { name: 'test-mcp-server', version: '1.0.0' }
+                        }
+                    });
+                } else if (method === 'notifications/initialized' || method === 'ping') {
+                    sendJson({
+                        jsonrpc: '2.0',
+                        id: id,
+                        result: {}
+                    });
+                } else if (method === 'tools/list') {
                     sendJson({
                         jsonrpc: '2.0',
                         id: id,
